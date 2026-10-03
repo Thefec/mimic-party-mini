@@ -1,0 +1,13 @@
+{
+  "name": "mimic-party-mini",
+  "private": true,
+  "workspaces": ["backend", "frontend"],
+  "scripts": {
+    "build": "npm run build -w frontend",
+    "dev": "npm run build && npm run dev -w backend",
+    "test": "npm test -w backend && npm test -w frontend",
+    "deploy": "npm run build && npm run deploy -w backend",
+    "prototype": "npm run prototype -w frontend",
+    "smoke": "node backend/scripts/smoke.mjs"
+  }
+}

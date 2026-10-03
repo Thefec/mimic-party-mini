@@ -1,0 +1,6 @@
+node_modules/
+frontend/dist/
+frontend/prototype/dist/
+backend/.wrangler/
+.dev.vars
+.superpowers/

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Mimic Party Mini — sahne prototipi</title>
+<!--STYLE-->
+<style>
+  #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #labels { position: fixed; inset: 0; pointer-events: none; }
+  .label { position: absolute; left: 0; top: 0; text-align: center; font: 700 15px system-ui; color: #fff; text-shadow: 0 2px 4px #000; white-space: nowrap; text-transform: none; letter-spacing: 0; }
+  .label-badge { font-size: 22px; color: #ffd23f; }
+  .label-bubble { background: #fff; color: #222; border-radius: 12px; padding: 4px 10px; margin-bottom: 4px; text-shadow: none; }
+  #controls { position: fixed; left: 12px; top: 12px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 520px; }
+  #controls button { font: 600 13px system-ui; padding: 6px 10px; border-radius: 8px; border: 0; cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="labels"></div>
+<div id="controls"></div>
+<!--SCRIPT-->
+</body>
+</html>

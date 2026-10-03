@@ -1,0 +1,1235 @@
+# Mimic Party Mini — Project Design
+
+## 1. Project Overview
+
+Build a small browser-based multiplayer party game inspired by the core concept of **Mimic Party**.
+
+The project is intentionally small and lightweight.
+
+The target use case:
+
+- 2–6 players
+- Private games with friends
+- A typical game session lasts 10–45 minutes
+- No user accounts
+- No permanent player profiles
+- No matchmaking system
+- No database requirement
+- No persistent game history
+- No authentication system
+- No lobby server beyond the game room itself
+
+The client should be distributable as a **single HTML file**.
+
+A player should be able to:
+
+1. Open the HTML file in a browser.
+2. Enter a nickname.
+3. Create or join a room.
+4. Share the room code with friends.
+5. Play the game.
+6. Close the browser when finished.
+
+The backend is hosted separately on Cloudflare and communicates with clients through WebSockets.
+
+---
+
+# 2. High-Level Architecture
+
+```text
+                    INTERNET
+                       │
+                       │ WebSocket
+                       │
+              ┌────────▼────────┐
+              │ Cloudflare      │
+              │ Worker          │
+              │                 │
+              │ WebSocket API   │
+              └────────┬────────┘
+                       │
+                       ▼
+              ┌─────────────────┐
+              │ Durable Object  │
+              │                 │
+              │ GameRoom        │
+              │                 │
+              │ - players       │
+              │ - game state    │
+              │ - round state   │
+              │ - timer         │
+              │ - scores        │
+              └────────┬────────┘
+                       │
+             WebSocket │ connections
+          ┌────────────┼────────────┐
+          │            │            │
+          ▼            ▼            ▼
+       Player 1     Player 2     Player 3
+       Browser      Browser      Browser
+```
+
+The Cloudflare backend is authoritative.
+
+Clients must NOT be responsible for deciding game outcomes.
+
+For example:
+
+```text
+Client:
+"I scored 100 points."
+
+DO NOT TRUST THIS.
+```
+
+Instead:
+
+```text
+Client:
+"I selected option B."
+
+Server:
+"Option B is correct.
+Player receives 100 points."
+
+Server broadcasts:
+"Player received 100 points."
+```
+
+---
+
+# 3. Technology
+
+## Frontend
+
+Use:
+
+- HTML5
+- CSS3
+- Vanilla JavaScript
+- WebSocket API
+
+Do not introduce React, Vue, Angular, or another frontend framework unless there is a strong reason.
+
+The final client should be buildable into a single HTML file.
+
+The HTML file should contain:
+
+```text
+HTML
+CSS
+JavaScript
+```
+
+all in one file.
+
+External assets should be minimized.
+
+If an icon/font/asset is necessary, prefer inline SVG or embedded data where practical.
+
+---
+
+## Backend
+
+Use:
+
+- Cloudflare Workers
+- Cloudflare Durable Objects
+- WebSockets
+- TypeScript
+
+The Durable Object represents a single game room.
+
+Conceptually:
+
+```text
+Room ID: ABC123
+
+Durable Object:
+    GameRoom(ABC123)
+```
+
+Each active room has its own state.
+
+---
+
+# 4. Core Game Concept
+
+The game is a lightweight multiplayer party game based around players performing or selecting actions and other players attempting to identify/mimic/guess them.
+
+The exact mini-game rules should be implemented in a modular way so additional mini-games can be added later.
+
+The server should not contain UI-specific logic.
+
+The server manages:
+
+- Players
+- Rooms
+- Game phases
+- Rounds
+- Timers
+- Scores
+- Player actions
+- Validation
+- Results
+- Synchronization
+
+The client manages:
+
+- UI
+- Animations
+- Input
+- Rendering
+- Sound
+- Visual feedback
+
+---
+
+# 5. Game Flow
+
+The initial version should support the following lifecycle.
+
+```text
+CONNECT
+   │
+   ▼
+MAIN MENU
+   │
+   ├── Create Room
+   │
+   └── Join Room
+          │
+          ▼
+        LOBBY
+          │
+          │ Host starts game
+          ▼
+      GAME START
+          │
+          ▼
+      ROUND START
+          │
+          ▼
+       MINIGAME
+          │
+          ▼
+      ROUND RESULT
+          │
+          ├── More rounds
+          │       │
+          │       └──────► ROUND START
+          │
+          └── Game finished
+                    │
+                    ▼
+                RESULTS
+```
+
+---
+
+# 6. Room System
+
+Rooms use short human-readable room codes.
+
+Example:
+
+```text
+A7K2P
+```
+
+Recommended:
+
+- 5–6 characters
+- Uppercase letters
+- Avoid ambiguous characters such as `O/0` and `I/1`
+- Randomly generated
+
+Example:
+
+```javascript
+generateRoomCode()
+```
+
+The room code is the identifier used by players to join the game.
+
+---
+
+# 7. Player Model
+
+Each connected player should have a temporary ID.
+
+Example:
+
+```json
+{
+  "id": "p_8f31a",
+  "name": "Alex",
+  "score": 120,
+  "isHost": false,
+  "connected": true
+}
+```
+
+Player IDs must be generated by the server.
+
+Do not use the player's nickname as their identity.
+
+Nicknames are display names only.
+
+---
+
+# 8. Room State
+
+A room should conceptually maintain:
+
+```javascript
+{
+    id: "A7K2P",
+
+    hostId: "p_123",
+
+    phase: "lobby",
+
+    round: 0,
+
+    totalRounds: 5,
+
+    players: {},
+
+    gameState: {},
+
+    roundState: {}
+}
+```
+
+The exact implementation is up to the backend, but the state must remain easy to understand and debug.
+
+---
+
+# 9. Game Phases
+
+The server should use explicit game phases.
+
+Example:
+
+```text
+LOBBY
+COUNTDOWN
+ROUND_INTRO
+MINIGAME
+ROUND_RESULT
+GAME_RESULT
+```
+
+The server is responsible for transitioning between phases.
+
+Clients should receive phase changes through WebSocket messages.
+
+Example:
+
+```json
+{
+  "type": "phase_changed",
+  "phase": "MINIGAME"
+}
+```
+
+---
+
+# 10. WebSocket Protocol
+
+All communication between client and server should use JSON.
+
+Every message must contain a `type`.
+
+Example:
+
+```json
+{
+  "type": "join_room",
+  "roomId": "A7K2P",
+  "playerName": "Alex"
+}
+```
+
+Server response:
+
+```json
+{
+  "type": "joined_room",
+  "player": {
+    "id": "p_123",
+    "name": "Alex",
+    "score": 0,
+    "isHost": true
+  }
+}
+```
+
+---
+
+# 11. Client → Server Messages
+
+Initial protocol:
+
+## create_room
+
+```json
+{
+  "type": "create_room",
+  "playerName": "Alex"
+}
+```
+
+## join_room
+
+```json
+{
+  "type": "join_room",
+  "roomId": "A7K2P",
+  "playerName": "Alex"
+}
+```
+
+## start_game
+
+```json
+{
+  "type": "start_game"
+}
+```
+
+Only the host may send this.
+
+## player_action
+
+```json
+{
+  "type": "player_action",
+  "action": {
+    "type": "select",
+    "value": "B"
+  }
+}
+```
+
+## ready
+
+```json
+{
+  "type": "ready"
+}
+```
+
+## leave_room
+
+```json
+{
+  "type": "leave_room"
+}
+```
+
+Additional message types may be introduced as the mini-games require them.
+
+---
+
+# 12. Server → Client Messages
+
+Initial protocol:
+
+```text
+room_created
+room_joined
+player_joined
+player_left
+player_updated
+game_started
+phase_changed
+round_started
+game_state
+timer
+player_action_result
+round_result
+game_result
+error
+```
+
+Example:
+
+```json
+{
+  "type": "room_state",
+  "room": {
+    "id": "A7K2P",
+    "phase": "LOBBY",
+    "players": [
+      {
+        "id": "p1",
+        "name": "Alex",
+        "score": 0,
+        "isHost": true
+      },
+      {
+        "id": "p2",
+        "name": "Sam",
+        "score": 0,
+        "isHost": false
+      }
+    ]
+  }
+}
+```
+
+---
+
+# 13. Authoritative Server Rules
+
+The server must validate:
+
+- Room existence
+- Room capacity
+- Player identity
+- Host permissions
+- Current game phase
+- Valid actions
+- Valid round
+- Timing constraints
+- Duplicate submissions
+- Score changes
+
+Never trust:
+
+```text
+score
+playerId
+host status
+round number
+game phase
+```
+
+provided by the client.
+
+The client may send an action, but the server decides whether that action is valid.
+
+---
+
+# 14. Timers
+
+Timers are server-authoritative.
+
+Example:
+
+```text
+ROUND START
+    │
+    ├── 3 second countdown
+    │
+    ▼
+MINIGAME
+    │
+    ├── 15 second timer
+    │
+    ▼
+ROUND RESULT
+```
+
+The server should maintain the actual deadline.
+
+Clients may display a local countdown for smoothness, but the server's timestamp/deadline is authoritative.
+
+Example server message:
+
+```json
+{
+  "type": "timer",
+  "phase": "MINIGAME",
+  "endsAt": 1720000000000
+}
+```
+
+The client calculates the displayed remaining time from `endsAt`.
+
+---
+
+# 15. Disconnect Handling
+
+Players can disconnect at any time.
+
+The server should:
+
+1. Mark the player disconnected.
+2. Notify remaining players.
+3. Decide whether the player can reconnect.
+4. Remove abandoned players after a reasonable timeout.
+
+For the initial implementation, reconnection should be simple.
+
+A player may reconnect using their temporary session ID.
+
+Do not build a complex authentication system.
+
+---
+
+# 16. Room Lifecycle
+
+Rooms are temporary.
+
+A room should exist only while it is active.
+
+When all players leave:
+
+```text
+GameRoom
+    │
+    └── no players
+          │
+          ▼
+       eventually
+        expires
+```
+
+No permanent database is required.
+
+Do not store:
+
+- User accounts
+- Passwords
+- Long-term statistics
+- Match history
+- Personal information
+
+unless explicitly added later.
+
+---
+
+# 17. Frontend Architecture
+
+Even though the final output is one HTML file, organize the JavaScript internally into logical modules/functions.
+
+Recommended structure:
+
+```text
+APP
+│
+├── connection
+│   ├── connect()
+│   ├── disconnect()
+│   ├── send()
+│   └── handleMessage()
+│
+├── state
+│   ├── localPlayer
+│   ├── roomState
+│   ├── gameState
+│   └── updateState()
+│
+├── screens
+│   ├── showMainMenu()
+│   ├── showLobby()
+│   ├── showGame()
+│   └── showResults()
+│
+├── lobby
+│   ├── renderPlayers()
+│   └── updateHostControls()
+│
+├── game
+│   ├── renderGame()
+│   ├── handleInput()
+│   └── renderTimer()
+│
+└── audio
+    ├── playSound()
+    └── stopSound()
+```
+
+Do not put the entire application into one giant function.
+
+---
+
+# 18. Frontend State
+
+The client should maintain a local representation of the server state.
+
+Example:
+
+```javascript
+const state = {
+    connection: {
+        connected: false
+    },
+
+    player: {
+        id: null,
+        name: null
+    },
+
+    room: {
+        id: null,
+        phase: null,
+        players: []
+    },
+
+    game: {
+        round: 0,
+        totalRounds: 0,
+        data: null
+    }
+};
+```
+
+Server messages update this state.
+
+Rendering functions read from this state.
+
+---
+
+# 19. UI Screens
+
+The initial client should contain:
+
+## Main Menu
+
+```text
+MIMIC PARTY MINI
+
+[ CREATE ROOM ]
+
+[ JOIN ROOM ]
+
+Nickname: __________
+```
+
+## Create Room
+
+```text
+ROOM CREATED
+
+A7K2P
+
+Share this code with your friends.
+
+[ COPY CODE ]
+
+Players:
+Alex
+Sam
+John
+
+[ START GAME ]
+```
+
+## Join Room
+
+```text
+ROOM CODE
+
+[ A7K2P ]
+
+Nickname
+
+[ JOIN ]
+```
+
+## Lobby
+
+Show:
+
+- Room code
+- Player list
+- Host indicator
+- Connection status
+- Start button for host
+
+## Game Screen
+
+Show:
+
+- Current mini-game
+- Round number
+- Timer
+- Relevant controls
+- Player actions
+- Scores when appropriate
+
+## Results
+
+Show:
+
+- Final scores
+- Player names
+- Winner/result
+- Play again
+- Return to lobby
+
+---
+
+# 20. Visual Style
+
+The game should feel like a small party game rather than an enterprise application.
+
+Recommended visual characteristics:
+
+- Large buttons
+- High contrast
+- Playful typography
+- Simple animations
+- Responsive layout
+- Mobile-friendly controls
+- Minimal menus
+- Clear game state
+
+The interface must work on:
+
+- Desktop
+- Laptop
+- Mobile browser
+
+Do not over-engineer the design.
+
+---
+
+# 21. Mini-Game Architecture
+
+Mini-games should be isolated.
+
+Conceptually:
+
+```javascript
+const miniGames = {
+    mimic: {
+        start(),
+        handleAction(),
+        update(),
+        finish(),
+        render()
+    },
+
+    guessing: {
+        start(),
+        handleAction(),
+        update(),
+        finish(),
+        render()
+    }
+};
+```
+
+The server should know which mini-game is active.
+
+Example:
+
+```json
+{
+  "type": "round_started",
+  "round": 2,
+  "miniGame": "mimic"
+}
+```
+
+The frontend then renders the corresponding UI.
+
+---
+
+# 22. Initial Mini-Game
+
+The first implementation should contain **one polished mini-game only**.
+
+Do not implement multiple unfinished mini-games.
+
+The architecture should make adding additional games possible later.
+
+The first mini-game should demonstrate:
+
+- Multiple players
+- Server synchronization
+- Timer
+- Player input
+- Server-side validation
+- Scoring
+- Round transition
+- Final results
+
+---
+
+# 23. Error Handling
+
+Errors must be explicit.
+
+Example:
+
+```json
+{
+  "type": "error",
+  "code": "ROOM_FULL",
+  "message": "This room is full."
+}
+```
+
+Possible errors:
+
+```text
+ROOM_NOT_FOUND
+ROOM_FULL
+INVALID_NAME
+INVALID_ACTION
+NOT_HOST
+GAME_ALREADY_STARTED
+INVALID_PHASE
+ALREADY_SUBMITTED
+CONNECTION_ERROR
+```
+
+The client should display friendly messages.
+
+Do not expose internal server errors to players.
+
+---
+
+# 24. Security
+
+This is a private friends-only game, not a production SaaS.
+
+Do not over-engineer security.
+
+However:
+
+- Validate all client messages.
+- Limit room size to 6 players.
+- Never trust client scores.
+- Never trust client phase information.
+- Sanitize/display player names safely.
+- Reject malformed JSON.
+- Ignore unsupported message types.
+- Apply basic message rate limiting if practical.
+
+No login system is necessary.
+
+---
+
+# 25. Performance Requirements
+
+The project should be optimized for simplicity rather than scale.
+
+Target:
+
+```text
+Players per room: 2–6
+Concurrent rooms: small
+Game duration: ~10–45 minutes
+Persistent storage: none required
+```
+
+Do not introduce Redis, PostgreSQL, queues, Kubernetes, or other infrastructure unless a concrete requirement appears.
+
+---
+
+# 26. Single-File Distribution
+
+The final frontend artifact should be:
+
+```text
+mimic-party-mini.html
+```
+
+Opening it should display the game.
+
+The only external dependency should be the WebSocket backend.
+
+The backend URL should be configurable in one obvious location:
+
+```javascript
+const SERVER_URL = "wss://YOUR-CLOUDFLARE-WORKER.example.workers.dev";
+```
+
+Do not scatter the backend URL throughout the code.
+
+---
+
+# 27. Development Configuration
+
+During development it should be possible to switch between:
+
+```text
+LOCAL
+
+ws://localhost:8787
+```
+
+and:
+
+```text
+PRODUCTION
+
+wss://your-worker.example.workers.dev
+```
+
+Example:
+
+```javascript
+const SERVER_URL =
+    location.hostname === "localhost"
+        ? "ws://localhost:8787"
+        : "wss://YOUR-PRODUCTION-ENDPOINT";
+```
+
+The production value should be clearly marked for replacement.
+
+---
+
+# 28. Backend Project Structure
+
+The Cloudflare backend should conceptually use:
+
+```text
+backend/
+│
+├── src/
+│   ├── index.ts
+│   ├── GameRoom.ts
+│   ├── protocol.ts
+│   ├── game.ts
+│   └── games/
+│       └── mimic.ts
+│
+├── wrangler.toml
+├── package.json
+└── tsconfig.json
+```
+
+Responsibilities:
+
+### index.ts
+
+Cloudflare Worker entry point.
+
+Responsible for:
+
+- HTTP requests
+- Room routing
+- Durable Object routing
+- WebSocket upgrade
+
+### GameRoom.ts
+
+Durable Object implementation.
+
+Responsible for:
+
+- WebSocket connections
+- Room state
+- Player management
+- Game lifecycle
+- Broadcasting
+
+### protocol.ts
+
+Message definitions and validation.
+
+### game.ts
+
+Generic game/round state management.
+
+### games/mimic.ts
+
+Rules for the first mini-game.
+
+---
+
+# 29. Separation of Responsibilities
+
+## Client
+
+```text
+Input
+↓
+Send action
+↓
+Wait for server
+↓
+Receive state
+↓
+Render state
+```
+
+## Server
+
+```text
+Receive action
+↓
+Validate action
+↓
+Modify authoritative state
+↓
+Calculate result
+↓
+Broadcast state
+```
+
+The client should never independently decide the official game state.
+
+---
+
+# 30. Important Development Rule
+
+Do not build the project as a fake multiplayer game where every browser maintains its own state.
+
+The game must actually synchronize through the server.
+
+For example:
+
+```text
+Player A presses button
+        │
+        ▼
+WebSocket
+        │
+        ▼
+Cloudflare Durable Object
+        │
+        ├── validate
+        ├── update state
+        └── calculate result
+        │
+        ▼
+broadcast
+        │
+   ┌────┴────┐
+   ▼         ▼
+Player A   Player B
+```
+
+All clients should converge to the same authoritative state.
+
+---
+
+# 31. Development Order
+
+Implement in this order.
+
+### Phase 1 — Connection
+
+- Cloudflare Worker
+- Durable Object
+- WebSocket connection
+- Connect/disconnect
+- Basic ping/pong
+
+### Phase 2 — Rooms
+
+- Create room
+- Join room
+- Leave room
+- Room code
+- Player list
+- Host
+
+### Phase 3 — Game State
+
+- Start game
+- Game phases
+- Rounds
+- Server timers
+- Broadcast state
+
+### Phase 4 — First Mini-Game
+
+- Implement one complete mini-game
+- Player actions
+- Validation
+- Scoring
+- Round results
+
+### Phase 5 — Frontend
+
+- Main menu
+- Lobby
+- Game UI
+- Results
+- Animations
+- Sound
+
+### Phase 6 — Reliability
+
+- Disconnect handling
+- Reconnect
+- Invalid messages
+- Full rooms
+- Game already started
+- Host disconnect
+
+### Phase 7 — Packaging
+
+- Inline CSS
+- Inline JavaScript
+- Remove unnecessary dependencies
+- Produce one `mimic-party-mini.html`
+
+---
+
+# 32. Non-Goals
+
+Do NOT implement initially:
+
+- User accounts
+- OAuth
+- Database
+- Persistent profiles
+- Matchmaking
+- Public game browser
+- Chat
+- Friends list
+- Leaderboards
+- Analytics
+- Payments
+- Admin dashboard
+- Microservices
+- Docker
+- Kubernetes
+- Redis
+
+Keep the project small.
+
+---
+
+# 33. Definition of Done
+
+The project is considered successful when:
+
+1. A player opens the HTML file.
+2. They enter a nickname.
+3. They create a room.
+4. Another player opens the same HTML file.
+5. They enter the room code.
+6. Both browsers see each other.
+7. The host starts the game.
+8. The server controls the game state.
+9. Both clients receive synchronized state.
+10. Players can complete the first mini-game.
+11. Scores are calculated by the server.
+12. Multiple rounds work.
+13. Final results are displayed.
+14. Players can play again or leave.
+15. No database or permanent server state is required.
+
+The final experience should feel like:
+
+```text
+Download/open HTML
+       ↓
+Enter name
+       ↓
+Create room
+       ↓
+Send code to friends
+       ↓
+Everyone joins
+       ↓
+PLAY
+       ↓
+Close browser
+       ↓
+Done
+```
+
+The architecture should remain simple enough that the entire backend can be understood by one developer and the frontend can be distributed as a single HTML file.

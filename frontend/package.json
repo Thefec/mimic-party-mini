@@ -1,0 +1,19 @@
+{
+  "name": "frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "prototype": "node build.mjs prototype",
+    "audiolab": "node build.mjs audio",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "happy-dom": "^20.14.5",
+    "vitest": "^5.0.2"
+  }
+}
